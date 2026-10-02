@@ -1,16 +1,10 @@
 {
   "expo": {
-    "name": "ClimaQ",
-    "slug": "ClimaQ",
-    "version": "3.1.0",
+    "name": "WeatherApp",
+    "slug": "WeatherApp",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./asset/icon.png",
-    "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./asset/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": true
     },
@@ -18,20 +12,29 @@
       "adaptiveIcon": {
         "foregroundImage": "./asset/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "package": "com.ibele_canada.ClimaQ"
+      }
     },
     "web": {
       "favicon": "./asset/favicon.png"
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "image": "./asset/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Allow ClimaQ to access your location when the app is in use.",
           "isAndroidBackgroundLocationEnabled": false
         }
-      ]
+      ],
+      "expo-status-bar",
+      "expo-font"
     ],
     "extra": {
       "eas": {
