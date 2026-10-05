@@ -16,7 +16,8 @@
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "package": "com.ibele_canada.WeatherApp"
     },
     "web": {
       "favicon": "./asset/favicon.png"
