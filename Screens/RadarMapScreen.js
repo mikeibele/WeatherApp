@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
@@ -6,88 +6,81 @@ import {
   TouchableOpacity,
   Text,
   ActivityIndicator,
+  StatusBar,
 } from "react-native";
-import MapView, { UrlTile, PROVIDER_DEFAULT } from "react-native-maps";
+import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
+import { OPENWEATHER_API_KEY } from "../utils/config";
 
 const { width, height } = Dimensions.get("window");
 
 export default function RadarMapScreen({ navigation, route }) {
   const { latitude, longitude } = route?.params || {};
+  const webViewRef = useRef(null);
 
-  const [region, setRegion] = useState(() => {
-    if (latitude != null && longitude != null) {
-      return {
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        latitudeDelta: 0.5,
-        longitudeDelta: 0.5,
-      };
+  const parsedLat = Number(latitude);
+  const parsedLon = Number(longitude);
+  const isValidCoord =
+    latitude != null &&
+    longitude != null &&
+    !isNaN(parsedLat) &&
+    !isNaN(parsedLon) &&
+    isFinite(parsedLat) &&
+    isFinite(parsedLon);
+
+  const defaultLat = 6.5244;
+  const defaultLon = 3.3792;
+
+  const [coords, setCoords] = useState(() => {
+    if (isValidCoord) {
+      return { lat: parsedLat, lon: parsedLon };
     }
     return null;
   });
 
-  const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [radarTime, setRadarTime] = useState(null);
-  const [layer, setLayer] = useState("rain"); // default layer
-  const [loading, setLoading] = useState(true);
+  const [layer, setLayer] = useState("rain");
 
-  // ✅ Location permission & Fallback coordinates
+  // ✅ Location permission & Fallback coordinates with timeout guard
   useEffect(() => {
     let isMounted = true;
+    const fallbackTimer = setTimeout(() => {
+      if (isMounted) {
+        setCoords((prev) => prev || { lat: defaultLat, lon: defaultLon });
+      }
+    }, 3000);
+
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (!isMounted) return;
 
-        if (status === "granted") {
-          setHasLocationPermission(true);
-          // If no specific coordinates were passed in route params, fetch current user location
-          if (latitude == null || longitude == null) {
-            const loc = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            });
-            if (isMounted && loc?.coords) {
-              setRegion({
-                latitude: loc.coords.latitude,
-                longitude: loc.coords.longitude,
-                latitudeDelta: 0.5,
-                longitudeDelta: 0.5,
-              });
-            }
+        if (status === "granted" && !isValidCoord) {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (isMounted && loc?.coords) {
+            setCoords({ lat: loc.coords.latitude, lon: loc.coords.longitude });
           }
-        } else {
-          setHasLocationPermission(false);
-          if (latitude == null || longitude == null) {
-            // Default fallback location (Lagos)
-            setRegion({
-              latitude: 6.5244,
-              longitude: 3.3792,
-              latitudeDelta: 0.5,
-              longitudeDelta: 0.5,
-            });
-          }
+        } else if (!isValidCoord && isMounted) {
+          setCoords({ lat: defaultLat, lon: defaultLon });
         }
       } catch (error) {
         console.warn("Location permission or fetch error:", error);
-        if (isMounted && (latitude == null || longitude == null)) {
-          setRegion({
-            latitude: 6.5244,
-            longitude: 3.3792,
-            latitudeDelta: 0.5,
-            longitudeDelta: 0.5,
-          });
+        if (isMounted && !isValidCoord) {
+          setCoords({ lat: defaultLat, lon: defaultLon });
         }
       }
     })();
 
     return () => {
       isMounted = false;
+      clearTimeout(fallbackTimer);
     };
   }, [latitude, longitude]);
 
-  // ✅ Fetch latest radar timestamp safely from RainViewer API
+  // ✅ Fetch latest RainViewer radar timestamp
   useEffect(() => {
     let isMounted = true;
     const fetchRadarTimestamps = async () => {
@@ -102,8 +95,6 @@ export default function RadarMapScreen({ navigation, route }) {
         }
       } catch (error) {
         console.error("Error fetching radar timestamps:", error);
-      } finally {
-        if (isMounted) setLoading(false);
       }
     };
     fetchRadarTimestamps();
@@ -113,58 +104,115 @@ export default function RadarMapScreen({ navigation, route }) {
     };
   }, []);
 
-  // ✅ Generate tile URL based on selected layer safely
-  const getTileUrl = () => {
-    switch (layer) {
-      case "temp":
-        return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=7b902e22617f60503e63a449259a926d`;
-      case "wind":
-        return `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=7b902e22617f60503e63a449259a926d`;
-      default:
-        return radarTime
-          ? `https://tilecache.rainviewer.com/v2/radar/${radarTime}/256/{z}/{x}/{y}/2/1_1.png`
-          : null;
+  const activeLat = coords?.lat || defaultLat;
+  const activeLon = coords?.lon || defaultLon;
+
+  // ✅ Switch layer inside Leaflet WebView dynamically
+  const handleLayerChange = (newLayer) => {
+    setLayer(newLayer);
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(
+        `if (typeof setLayer === 'function') { setLayer("${newLayer}", "${radarTime || ""}"); } true;`
+      );
     }
   };
 
-  const tileUrl = getTileUrl();
+  // ✅ 100% Free OpenStreetMap & CartoDB Dark Leaflet HTML Template
+  const leafletHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; background-color: #161c24; }
+        .leaflet-control-attribution { display: none !important; }
+        .custom-marker {
+          background-color: #00aaff;
+          border: 3px solid #ffffff;
+          border-radius: 50%;
+          width: 18px;
+          height: 18px;
+          box-shadow: 0 0 12px rgba(0,170,255,0.9);
+        }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script>
+        var map = L.map('map', {
+          zoomControl: false,
+          attributionControl: false
+        }).setView([${activeLat}, ${activeLon}], 8);
 
-  // ✅ Loading Screen
-  if (!region || loading) {
-    return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#00aaff" />
-        <Text style={{ color: "#555", marginTop: 10 }}>Loading Radar Map...</Text>
-      </View>
-    );
-  }
+        // 100% Free Basemap without API Keys or Watermarks (Esri World Dark Gray Canvas)
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+          maxZoom: 16
+        }).addTo(map);
 
-  // ✅ Main UI
+        // Custom pin marker at target location
+        var customIcon = L.divIcon({ className: 'custom-marker', iconSize: [18, 18], iconAnchor: [9, 9] });
+        L.marker([${activeLat}, ${activeLon}], { icon: customIcon }).addTo(map);
+
+        var weatherLayer = null;
+        var openWeatherKey = "${OPENWEATHER_API_KEY}";
+
+        function setLayer(layerType, radarTs) {
+          if (weatherLayer) {
+            map.removeLayer(weatherLayer);
+          }
+          var tileUrl = "";
+          if (layerType === "temp") {
+            tileUrl = "https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=" + openWeatherKey;
+          } else if (layerType === "wind") {
+            tileUrl = "https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=" + openWeatherKey;
+          } else {
+            if (radarTs) {
+              tileUrl = "https://tilecache.rainviewer.com/v2/radar/" + radarTs + "/256/{z}/{x}/{y}/2/1_1.png";
+            } else {
+              tileUrl = "https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=" + openWeatherKey;
+            }
+          }
+          if (tileUrl) {
+            weatherLayer = L.tileLayer(tileUrl, { opacity: 0.8, zIndex: 100 });
+            weatherLayer.addTo(map);
+          }
+        }
+
+        setLayer("${layer}", "${radarTime || ""}");
+      </script>
+    </body>
+    </html>
+  `;
+
   return (
     <View style={styles.container}>
-      <MapView
+      <StatusBar barStyle="light-content" backgroundColor="#161c24" />
+
+      {/* 🗺️ Leaflet Map inside WebView (100% Free & No API Keys Required) */}
+      <WebView
+        ref={webViewRef}
+        originWhitelist={["*"]}
+        source={{ html: leafletHtml }}
         style={styles.map}
-        provider={PROVIDER_DEFAULT}
-        initialRegion={region}
-        showsUserLocation={hasLocationPermission}
-        showsCompass={true}
-        showsScale={true}
-      >
-        {/* Live Weather Layer */}
-        {tileUrl ? (
-          <UrlTile
-            urlTemplate={tileUrl}
-            maximumZ={12}
-            zIndex={1}
-            tileSize={256}
-          />
-        ) : null}
-      </MapView>
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        startInLoadingState={true}
+        renderLoading={() => (
+          <View style={styles.loaderContainer}>
+            <ActivityIndicator size="large" color="#00aaff" />
+            <Text style={{ color: "#aaa", marginTop: 10 }}>Loading Radar Map...</Text>
+          </View>
+        )}
+      />
 
       {/* 🔙 Back Button */}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.goBack()}
+        activeOpacity={0.7}
       >
         <Ionicons name="arrow-back" size={24} color="#fff" />
       </TouchableOpacity>
@@ -173,23 +221,23 @@ export default function RadarMapScreen({ navigation, route }) {
       <View style={styles.buttonContainer}>
         <TouchableOpacity
           style={[styles.button, layer === "rain" && styles.activeButton]}
-          onPress={() => setLayer("rain")}
+          onPress={() => handleLayerChange("rain")}
         >
-          <Text style={styles.buttonText}>Rain</Text>
+          <Text style={[styles.buttonText, layer === "rain" && styles.activeButtonText]}>Rain</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, layer === "temp" && styles.activeButton]}
-          onPress={() => setLayer("temp")}
+          onPress={() => handleLayerChange("temp")}
         >
-          <Text style={styles.buttonText}>Temp</Text>
+          <Text style={[styles.buttonText, layer === "temp" && styles.activeButtonText]}>Temp</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.button, layer === "wind" && styles.activeButton]}
-          onPress={() => setLayer("wind")}
+          onPress={() => handleLayerChange("wind")}
         >
-          <Text style={styles.buttonText}>Wind</Text>
+          <Text style={[styles.buttonText, layer === "wind" && styles.activeButtonText]}>Wind</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -199,16 +247,18 @@ export default function RadarMapScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#161c24",
   },
   map: {
     width: width,
     height: height,
+    backgroundColor: "#161c24",
   },
   backButton: {
     position: "absolute",
     top: 50,
     left: 20,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.6)",
     padding: 10,
     borderRadius: 25,
     zIndex: 10,
@@ -221,11 +271,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     gap: 10,
+    zIndex: 10,
   },
   button: {
-    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
     paddingVertical: 10,
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     borderRadius: 20,
     marginHorizontal: 5,
   },
@@ -236,9 +287,14 @@ const styles = StyleSheet.create({
     color: "#000",
     fontWeight: "600",
   },
+  activeButtonText: {
+    color: "#fff",
+  },
   loaderContainer: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#161c24",
+    zIndex: 5,
   },
 });

@@ -13,8 +13,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import axios from "axios";
-
-const API_KEY = "7b902e22617f60503e63a449259a926d";
+import { OPENWEATHER_API_KEY as API_KEY } from "../utils/config";
 const { width } = Dimensions.get("window");
 
 // ─── Dynamic background gradient (mirrors HomeScreen card colours) ────────────

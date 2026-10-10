@@ -18,8 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import axios from "axios";
 import * as Location from "expo-location";
 import { useNavigation } from "@react-navigation/native";
-
-const API_KEY = "7b902e22617f60503e63a449259a926d";
+import { OPENWEATHER_API_KEY as API_KEY } from "../utils/config";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
