@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   ScrollView,
-  ImageBackground,
   TouchableOpacity,
   Dimensions,
   StatusBar,
@@ -17,6 +16,40 @@ import axios from "axios";
 
 const API_KEY = "7b902e22617f60503e63a449259a926d";
 const { width } = Dimensions.get("window");
+
+// ─── Dynamic background gradient (mirrors HomeScreen card colours) ────────────
+const getDetailGradientColors = (weatherMain, iconCode, weatherDesc = "") => {
+  const isNight = iconCode?.endsWith("n");
+  const main = (weatherMain || "").toLowerCase();
+  const desc = (weatherDesc || "").toLowerCase();
+
+  // Thunderstorm / Storm
+  if (main.includes("thunder") || main.includes("storm") || desc.includes("thunder") || desc.includes("storm")) {
+    return isNight ? ["#1A0B2E", "#2D1060", "#3B0764"] : ["#1E1060", "#311B92", "#5B21B6"];
+  }
+  // Rain / Drizzle
+  if (main.includes("rain") || main.includes("drizzle") || desc.includes("rain") || desc.includes("drizzle")) {
+    return isNight ? ["#0B132B", "#14213D", "#1C2541"] : ["#0C2461", "#1E3A8A", "#0284C7"];
+  }
+  // Clear / Sunny
+  if (main.includes("clear") || main.includes("sun") || desc.includes("clear") || desc.includes("sun")) {
+    return isNight ? ["#0F172A", "#1A1540", "#1E1B4B"] : ["#1D4ED8", "#2563EB", "#F59E0B"];
+  }
+  // Clouds / Overcast
+  if (main.includes("cloud") || desc.includes("cloud")) {
+    return isNight ? ["#0D1117", "#111827", "#1F2937"] : ["#1E293B", "#334155", "#64748B"];
+  }
+  // Snow
+  if (main.includes("snow") || desc.includes("snow")) {
+    return isNight ? ["#0A1628", "#0F172A", "#0369A1"] : ["#075985", "#0284C7", "#7DD3FC"];
+  }
+  // Mist / Fog / Haze / Dust
+  if (main.includes("fog") || main.includes("mist") || main.includes("haze") || main.includes("dust")) {
+    return isNight ? ["#0F1923", "#1E293B", "#334155"] : ["#2D3748", "#475569", "#94A3B8"];
+  }
+  // Default
+  return isNight ? ["#0D1117", "#1c2135", "#101626"] : ["#1D4ED8", "#2563EB", "#3B82F6"];
+};
 
 const getWeatherIconInfo = (mainCondition, iconCode) => {
   const isNight = iconCode?.endsWith("n");
@@ -190,26 +223,28 @@ const WeatherDetailScreen = ({ route, navigation }) => {
 
   if (loading) {
     return (
-      <ImageBackground source={require("../asset/image/clearsky.jpg")} style={styles.background}>
-        <LinearGradient colors={["rgba(15,60,110,0.3)", "rgba(10,35,75,0.7)"]} style={styles.gradientOverlay}>
-          <View style={styles.centerContainer}>
-            <ActivityIndicator size="large" color="#ffffff" />
-            <Text style={styles.loadingText}>Fetching Weather...</Text>
-          </View>
-        </LinearGradient>
-      </ImageBackground>
+      <LinearGradient
+        colors={["#0D1117", "#1c2135", "#101626"]}
+        style={styles.background}
+      >
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color="#ffffff" />
+          <Text style={styles.loadingText}>Fetching Weather...</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!weatherData) {
     return (
-      <ImageBackground source={require("../asset/image/clearsky.jpg")} style={styles.background}>
-        <LinearGradient colors={["rgba(15,60,110,0.3)", "rgba(10,35,75,0.7)"]} style={styles.gradientOverlay}>
-          <View style={styles.centerContainer}>
-            <Text style={styles.errorText}>Unable to load weather data.</Text>
-          </View>
-        </LinearGradient>
-      </ImageBackground>
+      <LinearGradient
+        colors={["#0D1117", "#1c2135", "#101626"]}
+        style={styles.background}
+      >
+        <View style={styles.centerContainer}>
+          <Text style={styles.errorText}>Unable to load weather data.</Text>
+        </View>
+      </LinearGradient>
     );
   }
 
@@ -230,10 +265,16 @@ const WeatherDetailScreen = ({ route, navigation }) => {
 
   const aqiInfo = getAqiInfo(airQuality);
 
+  // Derive dynamic background from real weather condition
+  const bgGradientColors = getDetailGradientColors(
+    today.weather[0].main,
+    today.weather[0].icon,
+    today.weather[0].description
+  );
+
   return (
-    <ImageBackground source={require("../asset/image/clearsky.jpg")} style={styles.background}>
+    <LinearGradient colors={bgGradientColors} style={styles.background}>
       <StatusBar barStyle="light-content" />
-      <LinearGradient colors={["rgba(20,75,135,0.25)", "rgba(10,40,85,0.65)"]} style={styles.gradientOverlay}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           
           {/* Main Weather Header */}
@@ -426,8 +467,7 @@ const WeatherDetailScreen = ({ route, navigation }) => {
           </TouchableOpacity>
         </View>
 
-      </LinearGradient>
-    </ImageBackground>
+    </LinearGradient>
   );
 };
 
@@ -436,9 +476,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: "100%",
     height: "100%",
-  },
-  gradientOverlay: {
-    flex: 1,
   },
   centerContainer: {
     flex: 1,
