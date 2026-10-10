@@ -403,7 +403,7 @@ const WeatherDetailScreen = ({ route, navigation }) => {
           <TouchableOpacity
             style={styles.navIconButton}
             activeOpacity={0.7}
-            onPress={() => navigation.navigate("RadarMapScreen", { latitude: cityData.coord.lat, longitude: cityData.coord.lon })}
+            onPress={() => navigation.navigate("RadarMapScreen", { latitude: cityData?.coord?.lat, longitude: cityData?.coord?.lon })}
           >
             <Ionicons name="map-outline" size={22} color="#ffffff" />
           </TouchableOpacity>

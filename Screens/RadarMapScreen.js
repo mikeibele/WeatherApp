@@ -7,61 +7,113 @@ import {
   Text,
   ActivityIndicator,
 } from "react-native";
-import MapView, { UrlTile } from "react-native-maps";
+import MapView, { UrlTile, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 
 const { width, height } = Dimensions.get("window");
 
-export default function RadarMapScreen({ navigation }) {
-  const [region, setRegion] = useState(null);
+export default function RadarMapScreen({ navigation, route }) {
+  const { latitude, longitude } = route?.params || {};
+
+  const [region, setRegion] = useState(() => {
+    if (latitude != null && longitude != null) {
+      return {
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        latitudeDelta: 0.5,
+        longitudeDelta: 0.5,
+      };
+    }
+    return null;
+  });
+
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [radarTime, setRadarTime] = useState(null);
   const [layer, setLayer] = useState("rain"); // default layer
   const [loading, setLoading] = useState(true);
 
-  // ✅ Get user's location
+  // ✅ Location permission & Fallback coordinates
   useEffect(() => {
+    let isMounted = true;
     (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        console.warn("Permission to access location was denied");
-        setRegion({
-          latitude: 6.5244, // fallback: Lagos
-          longitude: 3.3792,
-          latitudeDelta: 10,
-          longitudeDelta: 10,
-        });
-        return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (!isMounted) return;
+
+        if (status === "granted") {
+          setHasLocationPermission(true);
+          // If no specific coordinates were passed in route params, fetch current user location
+          if (latitude == null || longitude == null) {
+            const loc = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            if (isMounted && loc?.coords) {
+              setRegion({
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+                latitudeDelta: 0.5,
+                longitudeDelta: 0.5,
+              });
+            }
+          }
+        } else {
+          setHasLocationPermission(false);
+          if (latitude == null || longitude == null) {
+            // Default fallback location (Lagos)
+            setRegion({
+              latitude: 6.5244,
+              longitude: 3.3792,
+              latitudeDelta: 0.5,
+              longitudeDelta: 0.5,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn("Location permission or fetch error:", error);
+        if (isMounted && (latitude == null || longitude == null)) {
+          setRegion({
+            latitude: 6.5244,
+            longitude: 3.3792,
+            latitudeDelta: 0.5,
+            longitudeDelta: 0.5,
+          });
+        }
       }
-
-      const loc = await Location.getCurrentPositionAsync({});
-      setRegion({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 5,
-        longitudeDelta: 5,
-      });
     })();
-  }, []);
 
-  // ✅ Fetch latest radar timestamp from RainViewer API
+    return () => {
+      isMounted = false;
+    };
+  }, [latitude, longitude]);
+
+  // ✅ Fetch latest radar timestamp safely from RainViewer API
   useEffect(() => {
+    let isMounted = true;
     const fetchRadarTimestamps = async () => {
       try {
         const res = await fetch("https://tilecache.rainviewer.com/api/maps.json");
-        const timestamps = await res.json();
-        const latest = timestamps[timestamps.length - 1]; // latest timestamp
-        setRadarTime(latest);
+        if (res.ok) {
+          const timestamps = await res.json();
+          if (Array.isArray(timestamps) && timestamps.length > 0) {
+            const latest = timestamps[timestamps.length - 1];
+            if (isMounted) setRadarTime(latest);
+          }
+        }
       } catch (error) {
         console.error("Error fetching radar timestamps:", error);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
     fetchRadarTimestamps();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // ✅ Generate tile URL based on selected layer
+  // ✅ Generate tile URL based on selected layer safely
   const getTileUrl = () => {
     switch (layer) {
       case "temp":
@@ -69,9 +121,13 @@ export default function RadarMapScreen({ navigation }) {
       case "wind":
         return `https://tile.openweathermap.org/map/wind_new/{z}/{x}/{y}.png?appid=7b902e22617f60503e63a449259a926d`;
       default:
-        return `https://tilecache.rainviewer.com/v2/radar/${radarTime}/256/{z}/{x}/{y}/2/1_1.png`;
+        return radarTime
+          ? `https://tilecache.rainviewer.com/v2/radar/${radarTime}/256/{z}/{x}/{y}/2/1_1.png`
+          : null;
     }
   };
+
+  const tileUrl = getTileUrl();
 
   // ✅ Loading Screen
   if (!region || loading) {
@@ -88,19 +144,21 @@ export default function RadarMapScreen({ navigation }) {
     <View style={styles.container}>
       <MapView
         style={styles.map}
-        region={region}
-        onRegionChangeComplete={(r) => setRegion(r)}
-        showsUserLocation={true}
+        provider={PROVIDER_DEFAULT}
+        initialRegion={region}
+        showsUserLocation={hasLocationPermission}
         showsCompass={true}
         showsScale={true}
       >
         {/* Live Weather Layer */}
-        <UrlTile
-          urlTemplate={getTileUrl()}
-          maximumZ={12}
-          zIndex={1}
-          tileSize={256}
-        />
+        {tileUrl ? (
+          <UrlTile
+            urlTemplate={tileUrl}
+            maximumZ={12}
+            zIndex={1}
+            tileSize={256}
+          />
+        ) : null}
       </MapView>
 
       {/* 🔙 Back Button */}
